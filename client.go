@@ -1,17 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"strings"
 )
 
 func main() {
+	// Parse Arguments
 	var id int
 	var configPath string
 	flag.IntVar(&id, "id", 0, "Which Client this is")
@@ -19,6 +21,7 @@ func main() {
 
 	flag.Parse()
 
+	// Open Config File and Read it
 	file, err := os.Open(configPath)
 	if err != nil {
 		log.Fatal(err)
@@ -42,48 +45,41 @@ func main() {
 	fmt.Println(myAddr)
 	fmt.Println(myPort)
 
-	other := (id + 1) % 2
-	otherAddr := config.Clients[other].Address
-	otherPort := config.Clients[other].Port
-	fmt.Println("OTHER")
-	fmt.Println(myAddr)
-	fmt.Println(myPort)
+	go broadcaster()
+	go writeMessages()
 
-	done := make(chan struct{})
-
-	// Attempt to Dial
-	fmt.Println("Ringing")
-	conn, err := net.Dial(
-		"tcp", fmt.Sprintf("%s:%d", otherAddr, otherPort),
-	)
-	// If this worked use this as our communication chanel
-	if err == nil {
-		fmt.Println("Picked Up!")
-		go func() {
-			io.Copy(os.Stdout, conn) // NOTE: ignoring errors
-			log.Println("done")
-			done <- struct{}{} // signal the main goroutine
-		}()
-		mustCopy(conn, os.Stdin)
-		conn.Close()
-		<-done
-		// Otherwise Create a listening server -- we hopped on first
-	} else {
-		fmt.Println("Failed. Listening")
-		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", myAddr, myPort))
-		if err != nil {
-			log.Fatal(err)
+	// Contact Everyone Else
+	for i, client := range config.Clients {
+		if i == id {
+			continue
 		}
-
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				log.Print(err)
-				continue
-			}
-			fmt.Println("Call Received!")
+		// Attempt to Dial
+		fmt.Println("Ringing ", client.Port)
+		conn, err := net.Dial(
+			"tcp", fmt.Sprintf("%s:%d", client.Address, client.Port),
+		)
+		// If this worked use this as our communication chanel
+		if err == nil {
+			fmt.Println("Picked Up!")
 			go handleConn(conn)
 		}
+
+	}
+
+	// Start a listening server
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", myAddr, myPort))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Print(err)
+			continue
+		}
+		fmt.Println("Call Received!")
+		go handleConn(conn)
 	}
 }
 
@@ -94,21 +90,61 @@ type Config struct {
 	}
 }
 
+func writeMessages() {
+	input := bufio.NewScanner(os.Stdin)
+	for input.Scan() {
+		messages <- input.Text()
+	}
+	log.Print("Write Messages is Donezo")
+}
+
 func handleConn(conn net.Conn) {
-	done := make(chan struct{})
-	go func() {
-		io.Copy(os.Stdout, conn) // NOTE: ignoring errors
-		log.Println("done")
-		done <- struct{}{} // signal the main goroutine
-	}()
-	mustCopy(conn, os.Stdin)
-	<-done
-	// NOTE: ignoring potential errors from input.Err()
+	ch := make(chan string) // outgoing client messages
+	go clientWriter(conn, ch)
+
+	entering <- ch
+
+	input := bufio.NewScanner(conn)
+	for input.Scan() {
+		fmt.Println(input.Text())
+	}
+	fmt.Println("Done: ", strings.Split(conn.LocalAddr().String(), ":")[1])
+	leaving <- ch
 	conn.Close()
 }
 
-func mustCopy(dst io.Writer, src io.Reader) {
-	if _, err := io.Copy(dst, src); err != nil {
-		log.Fatal(err)
+func clientWriter(conn net.Conn, ch <-chan string) {
+	for msg := range ch {
+		fmt.Fprintln(conn, msg) // NOTE: ignoring network errors
+	}
+}
+
+// BroadCaster
+type client chan<- string // an outgoing message channel
+
+var (
+	entering = make(chan client)
+	leaving  = make(chan client)
+	messages = make(chan string) // all incoming client messages
+)
+
+func broadcaster() {
+	clients := make(map[client]bool) // all connected clients
+	for {
+		select {
+		case msg := <-messages:
+			// Broadcast incoming message to all
+			// clients' outgoing message channels.
+			for cli := range clients {
+				cli <- msg
+			}
+
+		case cli := <-entering:
+			clients[cli] = true
+
+		case cli := <-leaving:
+			delete(clients, cli)
+			close(cli)
+		}
 	}
 }
