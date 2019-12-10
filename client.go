@@ -2,12 +2,13 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	"os"
 	"strings"
 )
@@ -45,6 +46,35 @@ func main() {
 	fmt.Println(myAddr)
 	fmt.Println(myPort)
 
+	// Load Certs
+	caCert, err := ioutil.ReadFile("./certs/ca.pem")
+	if err != nil {
+		log.Printf("failed to load cert: %s", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	clientCertFile := fmt.Sprintf("./certs/client%d.pem", id)
+	clientKeyFile := fmt.Sprintf("./certs/client%d-key.pem", id)
+	clientCert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+
+	serverCertFile := fmt.Sprintf("./certs/server%d.pem", id)
+	serverKeyFile := fmt.Sprintf("./certs/server%d-key.pem", id)
+	serverCert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
+
+	tlsConfigServer := &tls.Config{
+		Certificates: []tls.Certificate{serverCert},  // server certificate which is validated by the client
+		ClientCAs:    caCertPool,                     // used to verify the client cert is signed by the CA and is therefore valid
+		ClientAuth:   tls.RequireAndVerifyClientCert, // this requires a valid client certificate to be supplied during handshake
+	}
+
+	tlsConfigClient := &tls.Config{
+		Certificates: []tls.Certificate{clientCert}, // this certificate is used to sign the handshake
+		RootCAs:      caCertPool,                    // this is used to validate the server certificate
+	}
+	tlsConfigClient.BuildNameToCertificate()
+
 	go broadcaster()
 	go writeMessages()
 
@@ -55,19 +85,19 @@ func main() {
 		}
 		// Attempt to Dial
 		fmt.Println("Ringing ", client.Port)
-		conn, err := net.Dial(
-			"tcp", fmt.Sprintf("%s:%d", client.Address, client.Port),
+		conn, err := tls.Dial(
+			"tcp", fmt.Sprintf("%s:%d", client.Address, client.Port), tlsConfigClient,
 		)
 		// If this worked use this as our communication chanel
 		if err == nil {
 			fmt.Println("Picked Up!")
 			go handleConn(conn)
 		}
-
 	}
 
 	// Start a listening server
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", myAddr, myPort))
+	listener, err := tls.Listen("tcp", fmt.Sprintf("%s:%d", myAddr, myPort), tlsConfigServer)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,7 +109,14 @@ func main() {
 			continue
 		}
 		fmt.Println("Call Received!")
-		go handleConn(conn)
+
+		tlsConn, ok := conn.(*tls.Conn)
+		if !ok {
+			log.Printf("failed to cast conn to tls.Conn")
+			continue
+		}
+
+		go handleConn(tlsConn)
 	}
 }
 
@@ -98,7 +135,21 @@ func writeMessages() {
 	log.Print("Write Messages is Donezo")
 }
 
-func handleConn(conn net.Conn) {
+func handleConn(conn *tls.Conn) {
+	defer conn.Close()
+
+	tag := fmt.Sprintf("[%s -> %s]", conn.LocalAddr(), conn.RemoteAddr())
+	log.Printf("%s accept", tag)
+
+	err := conn.Handshake()
+	if err != nil {
+		log.Printf("failed to complete handshake: %s", err)
+	}
+
+	if len(conn.ConnectionState().PeerCertificates) > 0 {
+		log.Printf("%s client common name: %+v", tag, conn.ConnectionState().PeerCertificates[0].Subject.CommonName)
+	}
+
 	ch := make(chan string) // outgoing client messages
 	go clientWriter(conn, ch)
 
@@ -108,12 +159,11 @@ func handleConn(conn net.Conn) {
 	for input.Scan() {
 		fmt.Println(input.Text())
 	}
-	fmt.Println("Done: ", strings.Split(conn.LocalAddr().String(), ":")[1])
+	fmt.Println("Done: ", strings.Split(conn.RemoteAddr().String(), ":")[1])
 	leaving <- ch
-	conn.Close()
 }
 
-func clientWriter(conn net.Conn, ch <-chan string) {
+func clientWriter(conn *tls.Conn, ch <-chan string) {
 	for msg := range ch {
 		fmt.Fprintln(conn, msg) // NOTE: ignoring network errors
 	}

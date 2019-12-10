@@ -5,6 +5,7 @@ tmux new-session -d -s demo
 tmux select-window -t demo:0
 for i in $(seq 0 $(($num_clients - 1)));
 do
+  sleep 1
   if [ "$i" != "0" ]; then
     tmux split-window -v
   fi

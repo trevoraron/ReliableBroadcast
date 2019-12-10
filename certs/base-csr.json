@@ -1,5 +1,5 @@
 {
-  "CN": "massl",
+  "CN": "temp",
   "key": {
     "algo": "rsa",
     "size": 2048
