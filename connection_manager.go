@@ -1,28 +1,33 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/gob"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
-	"strings"
 )
 
-// Channel to a particular connection
-type client chan<- string // an outgoing message channel
-
-type IncomingMessage struct {
-	Client  string
+type DataMessage struct {
 	Message string
+}
+
+// Channel to a particular connection
+type client chan<- DataMessage // an outgoing message channel
+
+// What we pass back to clients
+type IncomingMessage struct {
+	Client string
+	Data   DataMessage
 }
 
 // Global Channels
 var (
 	entering         = make(chan client)
 	leaving          = make(chan client)
-	Messages         = make(chan string) // all incoming client messages
+	Messages         = make(chan DataMessage) // all incoming client messages
 	IncomingMessages = make(chan IncomingMessage)
 )
 
@@ -126,35 +131,50 @@ func handleConn(conn *tls.Conn) {
 		log.Printf("failed to complete handshake: %s", err)
 	}
 
+	log.Printf("%s handhake completed", tag)
+
 	var clientName string
 	if len(conn.ConnectionState().PeerCertificates) > 0 {
 		clientName = conn.ConnectionState().PeerCertificates[0].Subject.CommonName
 		log.Printf("%s client common name: %+v", tag, conn.ConnectionState().PeerCertificates[0].Subject.CommonName)
 	} else {
-		log.Printf("Error -- malformatted cert")
+		log.Printf("%s Error -- malformatted cert", tag)
 		return
 	}
 
 	// Start a channel and writer for outgoing messages
-	ch := make(chan string)
-	go clientWriter(conn, ch)
+	ch := make(chan DataMessage)
+	go clientWriter(conn, ch, tag)
 
 	// Register the channel with the broadcaster
 	entering <- ch
 
 	// Wrap incoming messages and send them in the IncomingMessages channel
-	input := bufio.NewScanner(conn)
-	for input.Scan() {
-		IncomingMessages <- IncomingMessage{Client: clientName, Message: input.Text()}
+	var data DataMessage
+	dec := gob.NewDecoder(conn)
+	for {
+		err = dec.Decode(&data)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("%s Error decoding: %s", tag, err)
+			}
+			break
+		}
+
+		IncomingMessages <- IncomingMessage{Client: clientName, Data: data}
 	}
-	log.Println("Done: ", strings.Split(conn.RemoteAddr().String(), ":")[1])
+	log.Println(tag, clientName, "has disconnected")
 	leaving <- ch
 }
 
 // Writes outgoing messages to a channel
-func clientWriter(conn *tls.Conn, ch <-chan string) {
+func clientWriter(conn *tls.Conn, ch <-chan DataMessage, tag string) {
+	enc := gob.NewEncoder(conn)
 	for msg := range ch {
-		fmt.Fprintln(conn, msg) // NOTE: ignoring network errors
+		err := enc.Encode(msg)
+		if err != nil {
+			log.Printf("%s Error encoding: %s", tag, err)
+		}
 	}
 }
 

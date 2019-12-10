@@ -38,7 +38,7 @@ func main() {
 func writeMessages(finished chan bool) {
 	input := bufio.NewScanner(os.Stdin)
 	for input.Scan() {
-		Messages <- input.Text()
+		Messages <- DataMessage{Message: input.Text()}
 	}
 	log.Println("Shutting Off")
 	finished <- true
@@ -47,6 +47,6 @@ func writeMessages(finished chan bool) {
 // This go routine reads incoming messages and prints them
 func readMessages() {
 	for incomingMessage := range IncomingMessages {
-		fmt.Printf("%s: %s\n", incomingMessage.Client, incomingMessage.Message)
+		fmt.Printf("%s: %s\n", incomingMessage.Client, incomingMessage.Data.Message)
 	}
 }
