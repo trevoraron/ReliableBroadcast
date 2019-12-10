@@ -11,7 +11,7 @@ import (
 )
 
 type DataMessage struct {
-	Message string
+	Message []byte
 }
 
 // Channel to a particular connection
