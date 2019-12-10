@@ -13,3 +13,11 @@
 
 # Goland stuff
 *.idea
+
+# Cert Stuff
+.pem
+.csr
+.tmp.json
+
+# Build Artifacts
+client

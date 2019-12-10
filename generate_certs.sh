@@ -25,14 +25,7 @@ do
     -ca-key=ca-key.pem \
     -config=ca-config.json \
     -profile=massl \
-    $client_name.tmp.json | cfssljson -bare client$i
-  # Generate Server Cert
-  cfssl gencert \
-    -ca=ca.pem \
-    -ca-key=ca-key.pem \
-    -config=ca-config.json \
     -hostname $address \
-    -profile=massl \
-    $client_name.tmp.json | cfssljson -bare server$i
+    $client_name.tmp.json | cfssljson -bare client$i
 done
 
