@@ -1,10 +1,11 @@
-package main
+package connectionpool
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/gob"
 	"fmt"
+	"github.com/TrevorAron/ReliableBroadcast/config"
 	"io"
 	"io/ioutil"
 	"log"
@@ -27,16 +28,16 @@ type IncomingMessage struct {
 var (
 	entering         = make(chan client)
 	leaving          = make(chan client)
-	Messages         = make(chan DataMessage) // all incoming client messages
-	IncomingMessages = make(chan IncomingMessage)
+	OutgoingMessages = make(chan DataMessage)     // msgs to be broadcasted
+	IncomingMessages = make(chan IncomingMessage) // msgs recieved from other hosts
 )
 
 // Sets everything up -- reads certs, starts the broadcaster channel, tries to dial other clients to
 // generate mTLS connections, and then starts a listening server that will create connections when other
 // clients ring this one
-func StartConnectionManager() {
-	myAddr := GlobalConfig.Clients[ID].Address
-	myPort := GlobalConfig.Clients[ID].Port
+func StartConnectionPool() {
+	myAddr := config.GlobalConfig.Clients[config.ID].Address
+	myPort := config.GlobalConfig.Clients[config.ID].Port
 	log.Println("My Info:", fmt.Sprintf("%s:%d", myAddr, myPort))
 
 	// Start The Broadcaster
@@ -51,8 +52,8 @@ func StartConnectionManager() {
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
 
-	clientCertFile := fmt.Sprintf("./certs/client%d.pem", ID)
-	clientKeyFile := fmt.Sprintf("./certs/client%d-key.pem", ID)
+	clientCertFile := fmt.Sprintf("./certs/client%d.pem", config.ID)
+	clientKeyFile := fmt.Sprintf("./certs/client%d-key.pem", config.ID)
 	clientCert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
 
 	// Set up TLS Configs
@@ -69,8 +70,8 @@ func StartConnectionManager() {
 	tlsConfigClient.BuildNameToCertificate()
 
 	// Ring everyone else to start a connection with whoever is online
-	for i, client := range GlobalConfig.Clients {
-		if i == ID {
+	for i, client := range config.GlobalConfig.Clients {
+		if i == config.ID {
 			continue
 		}
 		fullClientAddr := fmt.Sprintf("%s:%d", client.Address, client.Port)
@@ -185,7 +186,7 @@ func broadcaster() {
 	clients := make(map[client]bool) // all connected clients
 	for {
 		select {
-		case msg := <-Messages:
+		case msg := <-OutgoingMessages:
 			// Broadcast incoming message to all
 			// clients' outgoing message channels.
 			for cli := range clients {

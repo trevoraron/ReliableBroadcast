@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/TrevorAron/ReliableBroadcast/config"
+	"github.com/TrevorAron/ReliableBroadcast/connectionpool"
+	"github.com/TrevorAron/ReliableBroadcast/helpers"
 	"log"
 	"os"
 )
@@ -18,13 +21,13 @@ func main() {
 	flag.Parse()
 
 	// Read and Parse Config File
-	ReadConfig(configPath, id)
+	config.ReadConfig(configPath, id)
 
-	// Start Reading Messages
+	// Start Reading OutgoingMessages
 	go readMessages()
 
 	// Start Pooling Connections
-	StartConnectionManager()
+	connectionpool.StartConnectionPool()
 
 	// Start Broadcasting
 	finished := make(chan bool)
@@ -39,11 +42,11 @@ func writeMessages(finished chan bool) {
 	input := bufio.NewScanner(os.Stdin)
 	for input.Scan() {
 		cm := ClientMessage{Message: input.Text()}
-		byteArr, err := StructToBytes(cm)
+		byteArr, err := helpers.StructToBytes(cm)
 		if err != nil {
 			log.Fatalf("Error Encoding Client Message: %s", err)
 		}
-		Messages <- DataMessage{Message: byteArr}
+		connectionpool.OutgoingMessages <- connectionpool.DataMessage{Message: byteArr}
 	}
 	log.Println("Shutting Off")
 	finished <- true
@@ -51,9 +54,9 @@ func writeMessages(finished chan bool) {
 
 // This go routine reads incoming messages and prints them
 func readMessages() {
-	for incomingMessage := range IncomingMessages {
+	for incomingMessage := range connectionpool.IncomingMessages {
 		var clientMessage ClientMessage
-		err := BytesToStruct(incomingMessage.Data.Message, &clientMessage)
+		err := helpers.BytesToStruct(incomingMessage.Data.Message, &clientMessage)
 		if err != nil {
 			log.Fatalf("Error Decoding Client Message: %s", err)
 		}
