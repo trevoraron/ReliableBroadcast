@@ -37,9 +37,7 @@ var (
 func StartConnectionManager() {
 	myAddr := GlobalConfig.Clients[ID].Address
 	myPort := GlobalConfig.Clients[ID].Port
-	log.Println("ME")
-	log.Println(myAddr)
-	log.Println(myPort)
+	log.Println("My Info:", fmt.Sprintf("%s:%d", myAddr, myPort))
 
 	// Start The Broadcaster
 	go broadcaster()
@@ -75,14 +73,15 @@ func StartConnectionManager() {
 		if i == ID {
 			continue
 		}
+		fullClientAddr := fmt.Sprintf("%s:%d", client.Address, client.Port)
 		// Attempt to Dial
-		log.Println("Ringing ", client.Port)
+		log.Println(fullClientAddr, "Ringing")
 		conn, err := tls.Dial(
-			"tcp", fmt.Sprintf("%s:%d", client.Address, client.Port), tlsConfigClient,
+			"tcp", fullClientAddr, tlsConfigClient,
 		)
 		// If this worked use this as our communication chanel
 		if err == nil {
-			log.Println("Picked Up!")
+			log.Println(fullClientAddr, "Picked Up!")
 			go handleConn(conn)
 		}
 	}
