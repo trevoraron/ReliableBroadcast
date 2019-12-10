@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/gob"
 	"flag"
 	"fmt"
 	"log"
@@ -41,7 +39,11 @@ func writeMessages(finished chan bool) {
 	input := bufio.NewScanner(os.Stdin)
 	for input.Scan() {
 		cm := ClientMessage{Message: input.Text()}
-		Messages <- DataMessage{Message: ClientMessageToBytes(cm)}
+		byteArr, err := StructToBytes(cm)
+		if err != nil {
+			log.Fatalf("Error Encoding Client Message: %s", err)
+		}
+		Messages <- DataMessage{Message: byteArr}
 	}
 	log.Println("Shutting Off")
 	finished <- true
@@ -50,30 +52,15 @@ func writeMessages(finished chan bool) {
 // This go routine reads incoming messages and prints them
 func readMessages() {
 	for incomingMessage := range IncomingMessages {
-		clientMessage := BytesToClientMessage(incomingMessage.Data.Message)
+		var clientMessage ClientMessage
+		err := BytesToStruct(incomingMessage.Data.Message, &clientMessage)
+		if err != nil {
+			log.Fatalf("Error Decoding Client Message: %s", err)
+		}
 		fmt.Printf("%s: %s\n", incomingMessage.Client, clientMessage.Message)
 	}
 }
 
 type ClientMessage struct {
 	Message string
-}
-
-func BytesToClientMessage(input []byte) ClientMessage {
-	var cm ClientMessage
-	dec := gob.NewDecoder(bytes.NewReader(input))
-	err := dec.Decode(&cm)
-	if err != nil {
-		log.Printf("Error Decoding: %s", err)
-	}
-	return cm
-}
-
-func ClientMessageToBytes(input ClientMessage) []byte {
-	encBuf := new(bytes.Buffer)
-	err := gob.NewEncoder(encBuf).Encode(input)
-	if err != nil {
-		log.Printf("Error Encoding: %s", err)
-	}
-	return encBuf.Bytes()
 }
