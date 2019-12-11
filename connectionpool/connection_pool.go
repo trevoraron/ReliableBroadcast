@@ -150,9 +150,9 @@ func handleConn(conn *tls.Conn) {
 	entering <- ch
 
 	// Wrap incoming messages and send them in the IncomingMessages channel
-	var data DataMessage
 	dec := gob.NewDecoder(conn)
 	for {
+		var data DataMessage
 		err = dec.Decode(&data)
 		if err != nil {
 			if err != io.EOF {

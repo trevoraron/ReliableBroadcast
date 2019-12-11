@@ -12,6 +12,7 @@ type Config struct {
 		Address string
 		Port    int
 	}
+	T int
 }
 
 var GlobalConfig Config

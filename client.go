@@ -5,8 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/TrevorAron/ReliableBroadcast/config"
-	"github.com/TrevorAron/ReliableBroadcast/connectionpool"
 	"github.com/TrevorAron/ReliableBroadcast/helpers"
+	"github.com/fatih/color"
 	"log"
 	"os"
 )
@@ -23,11 +23,11 @@ func main() {
 	// Read and Parse Config File
 	config.ReadConfig(configPath, id)
 
-	// Start Reading OutgoingMessages
+	// Start Reading Incoming Messages
 	go readMessages()
 
-	// Start Pooling Connections
-	connectionpool.StartConnectionPool()
+	// Set Everything Up
+	Setup()
 
 	// Start Broadcasting
 	finished := make(chan bool)
@@ -46,7 +46,7 @@ func writeMessages(finished chan bool) {
 		if err != nil {
 			log.Fatalf("Error Encoding Client Message: %s", err)
 		}
-		connectionpool.OutgoingMessages <- connectionpool.DataMessage{Message: byteArr}
+		OutgoingMessages <- DataMessage{Message: byteArr}
 	}
 	log.Println("Shutting Off")
 	finished <- true
@@ -54,13 +54,16 @@ func writeMessages(finished chan bool) {
 
 // This go routine reads incoming messages and prints them
 func readMessages() {
-	for incomingMessage := range connectionpool.IncomingMessages {
+	for incomingMessage := range IncomingMessages {
 		var clientMessage ClientMessage
 		err := helpers.BytesToStruct(incomingMessage.Data.Message, &clientMessage)
 		if err != nil {
 			log.Fatalf("Error Decoding Client Message: %s", err)
 		}
-		fmt.Printf("%s: %s\n", incomingMessage.Client, clientMessage.Message)
+		c := color.New(color.FgCyan)
+		c.Println(
+			fmt.Sprintf("%s: %s\n", incomingMessage.Client, clientMessage.Message),
+		)
 	}
 }
 
