@@ -1,7 +1,22 @@
 # ReliableBroadcast
 
-Implementation of Bracha Broadcast algorithm in Go
+This is a demo reliable broadcast channel. The demo is for chatting -- each user can broadcast messages to all the other
+users, and if any of the users get the message all non byzantine nodes will also have recieved that message.
 
+## What is this?
+
+A Reliable Broadcast channel ensures that all honest parties deliver the same broadcasted message or none at all.
+A Reliable Broadcast channel will work in the face of `t` byzantine faults as long as `t < n / 3`. Byzantine faults
+are when nodes can lie or go down. This is a networking primitive that is required for many MPC applications, such as
+threshold signatures schemes
+
+Specifically, this project is an implementation of the Bracha Broadcast algorithm in Go. 
+
+## Network Topography
+
+This system is a fully connected graph. All nodes maintain mTLS connections with all other nodes, if the nodes
+are up. The system supports nodes leaving and coming back in, but if `t < n / 3` the system will not make progress
+and messages during that time won't be delivered.
 
 ## Setup + Running
 
